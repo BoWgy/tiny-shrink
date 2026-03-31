@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TinyShrink — 极速图片压缩</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Fonts: Syne for display, DM Sans for body -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Syne"', 'sans-serif'],
+            body: ['"DM Sans"', 'sans-serif'],
+          },
+          colors: {
+            surface: {
+              900: '#0a0e17',
+              800: '#0f1520',
+              700: '#151d2e',
+              600: '#1c2640',
+            },
+            accent: {
+              DEFAULT: '#22d67a',
+              light: '#34e88c',
+              dark: '#1ab366',
+              glow: 'rgba(34, 214, 122, 0.15)',
+            },
+            muted: {
+              DEFAULT: '#4a5568',
+              light: '#718096',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* ====== BASE RESET & CUSTOM STYLES ====== */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      background-color: #0a0e17;
+      color: #e2e8f0;
+      font-family: 'DM Sans', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Animated gradient mesh background */
+    .bg-mesh {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .bg-mesh::before {
+      content: '';
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(34,214,122,0.08) 0%, transparent 70%);
+      top: -150px;
+      right: -100px;
+      animation: meshFloat 18s ease-in-out infinite;
+    }
+    .bg-mesh::after {
+      content: '';
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56,123,255,0.06) 0%, transparent 70%);
+      bottom: -100px;
+      left: -80px;
+      animation: meshFloat 22s ease-in-out infinite reverse;
+    }
+    @keyframes meshFloat {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(40px, -30px) scale(1.05); }
+      66% { transform: translate(-20px, 20px) scale(0.95); }
+    }
+
+    /* Noise texture overlay */
+    .noise-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0.025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 256px 256px;
+    }
+
+    /* Glass card */
+    .glass {
+      background: rgba(15, 21, 32, 0.6);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .glass-light {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Dropzone */
+    .dropzone {
+      border: 2px dashed rgba(255, 255, 255, 0.12);
+      transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    .dropzone::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(34,214,122,0.0) 0%, transparent 70%);
+      transition: background 0.5s ease;
+    }
+    .dropzone:hover,
+    .dropzone.drag-over {
+      border-color: rgba(34, 214, 122, 0.4);
+      background: rgba(34, 214, 122, 0.03);
+    }
+    .dropzone:hover::before,
+    .dropzone.drag-over::before {
+      background: radial-gradient(circle at center, rgba(34,214,122,0.06) 0%, transparent 70%);
+    }
+    .dropzone.drag-over {
+      transform: scale(1.01);
+      box-shadow: 0 0 40px rgba(34, 214, 122, 0.08);
+    }
+
+    /* Upload icon animation */
+    .upload-icon {
+      transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .dropzone:hover .upload-icon,
+    .dropzone.drag-over .upload-icon {
+      transform: translateY(-6px);
+    }
+
+    /* Range slider custom styling */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #22d67a var(--val, 80%), rgba(255,255,255,0.08) var(--val, 80%));
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #22d67a;
+      box-shadow: 0 0 12px rgba(34,214,122,0.4), 0 2px 8px rgba(0,0,0,0.3);
+      cursor: pointer;
+      transition: box-shadow 0.3s ease, transform 0.2s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      box-shadow: 0 0 20px rgba(34,214,122,0.6), 0 2px 12px rgba(0,0,0,0.4);
+      transform: scale(1.15);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border: none;
+      border-radius: 50%;
+      background: #22d67a;
+      box-shadow: 0 0 12px rgba(34,214,122,0.4), 0 2px 8px rgba(0,0,0,0.3);
+      cursor: pointer;
+    }
+
+    /* Stats highlight */
+    .stat-value {
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    /* Download button */
+    .btn-download {
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .btn-download::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .btn-download:hover::before { opacity: 1; }
+    .btn-download:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(34, 214, 122, 0.25);
+    }
+    .btn-download:active {
+      transform: translateY(0px) scale(0.97);
+      box-shadow: 0 4px 15px rgba(34, 214, 122, 0.15);
+    }
+
+    /* Preview image container */
+    .preview-container {
+      position: relative;
+      overflow: hidden;
+    }
+    .preview-container img {
+      transition: opacity 0.5s ease;
+    }
+
+    /* Comparison labels */
+    .label-badge {
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* Pulse animation for savings badge */
+    @keyframes savingsPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,214,122,0.2); }
+      50% { box-shadow: 0 0 0 8px rgba(34,214,122,0); }
+    }
+    .savings-pulse {
+      animation: savingsPulse 2.5s ease-in-out infinite;
+    }
+
+    /* Fade in animation */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+      animation: fadeInUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      opacity: 0;
+    }
+    .animate-delay-1 { animation-delay: 0.1s; }
+    .animate-delay-2 { animation-delay: 0.2s; }
+    .animate-delay-3 { animation-delay: 0.3s; }
+    .animate-delay-4 { animation-delay: 0.4s; }
+
+    /* Subtle grid pattern on cards */
+    .grid-pattern {
+      background-image:
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+    /* Hide sections initially */
+    .section-hidden { display: none; }
+
+    /* Comparison slider */
+    .comparison-wrapper {
+      position: relative;
+      overflow: hidden;
+      cursor: col-resize;
+    }
+    .comparison-divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #22d67a;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .comparison-divider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #22d67a;
+      box-shadow: 0 0 16px rgba(34,214,122,0.4);
+    }
+    .comparison-divider::after {
+      content: '⟨ ⟩';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #0a0e17;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      pointer-events: none;
+    }
+
+    /* Format badge */
+    .format-badge {
+      font-size: 0.6rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .comparison-wrapper { min-height: 240px; }
+    }
+  </style>
+</head>
+
+<body class="min-h-screen font-body antialiased">
+  <!-- Animated background -->
+  <div class="bg-mesh"></div>
+  <div class="noise-overlay"></div>
+
+  <!-- Main content -->
+  <div class="relative z-10 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="w-full px-6 py-6 md:px-12 animate-fade-in">
+      <div class="max-w-5xl mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <!-- Logo mark -->
+          <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-accent to-accent-dark flex items-center justify-center shadow-lg shadow-accent/20">
+            <svg class="w-5 h-5 text-surface-900" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <span class="font-display font-bold text-lg tracking-tight text-white">TinyShrink</span>
+        </div>
+        <span class="text-xs text-muted-light tracking-wider uppercase">纯本地压缩 · 隐私无忧</span>
+      </div>
+    </header>
+
+    <!-- Hero / Title -->
+    <section class="px-6 md:px-12 pt-4 pb-8 animate-fade-in animate-delay-1">
+      <div class="max-w-5xl mx-auto text-center">
+        <h1 class="font-display font-extrabold text-4xl md:text-5xl lg:text-6xl text-white leading-tight tracking-tight">
+          智能图片压缩<span class="text-accent">.</span>
+        </h1>
+        <p class="mt-4 text-muted-light text-base md:text-lg max-w-xl mx-auto leading-relaxed">
+          在浏览器中完成压缩，文件绝不上传服务器。<br class="hidden md:block" />
+          拖入图片，即刻缩减体积。
+        </p>
+      </div>
+    </section>
+
+    <!-- Main workspace -->
+    <main class="flex-1 px-4 md:px-12 pb-16">
+      <div class="max-w-5xl mx-auto space-y-8">
+
+        <!-- ===== STEP 1: DROPZONE ===== -->
+        <section id="dropzone-section" class="animate-fade-in animate-delay-2">
+          <div
+            id="dropzone"
+            class="dropzone glass rounded-2xl grid-pattern cursor-pointer py-16 md:py-24 px-6 text-center group"
+            role="button"
+            tabindex="0"
+            aria-label="点击或拖拽图片到此处上传"
+          >
+            <!-- Upload icon -->
+            <div class="upload-icon mx-auto mb-6 w-16 h-16 rounded-2xl glass-light flex items-center justify-center">
+              <svg class="w-8 h-8 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+            </div>
+            <p class="font-display font-semibold text-white text-lg md:text-xl mb-2">
+              拖拽图片至此处
+            </p>
+            <p class="text-muted-light text-sm">
+              或 <span class="text-accent underline underline-offset-2 decoration-accent/30">点击选择文件</span>
+            </p>
+            <p class="mt-4 text-muted text-xs">
+              支持 JPG · PNG · WebP · 最大 20MB
+            </p>
+          </div>
+          <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" class="hidden" />
+        </section>
+
+        <!-- ===== STEP 2: EDITOR (hidden until file loaded) ===== -->
+        <section id="editor-section" class="section-hidden space-y-6">
+
+          <!-- File info bar -->
+          <div class="glass rounded-xl px-5 py-4 flex flex-wrap items-center justify-between gap-4 animate-fade-in">
+            <div class="flex items-center gap-3 min-w-0">
+              <!-- Thumbnail -->
+              <div id="thumb-container" class="w-10 h-10 rounded-lg bg-surface-700 overflow-hidden flex-shrink-0">
+                <img id="thumb-img" class="w-full h-full object-cover" src="" alt="" />
+              </div>
+              <div class="min-w-0">
+                <p id="file-name" class="text-sm font-medium text-white truncate max-w-[200px] md:max-w-[360px]">image.png</p>
+                <p id="file-meta" class="text-xs text-muted-light">1920 × 1080 · 2.4 MB</p>
+              </div>
+            </div>
+            <button
+              id="reset-btn"
+              class="text-xs text-muted-light hover:text-white transition-colors flex items-center gap-1.5"
+              aria-label="重新选择图片"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+              </svg>
+              换一张
+            </button>
+          </div>
+
+          <!-- Quality slider -->
+          <div class="glass rounded-xl px-5 py-5 animate-fade-in animate-delay-1">
+            <div class="flex items-center justify-between mb-3">
+              <label for="quality-slider" class="text-sm font-medium text-white">压缩质量</label>
+              <div class="flex items-center gap-2">
+                <span id="quality-value" class="font-display font-bold text-accent text-lg stat-value">80</span>
+                <span class="text-xs text-muted-light">%</span>
+              </div>
+            </div>
+            <input
+              type="range"
+              id="quality-slider"
+              min="1"
+              max="100"
+              value="80"
+              class="w-full"
+              aria-label="压缩质量"
+            />
+            <div class="flex justify-between mt-2 text-xs text-muted">
+              <span>最小体积</span>
+              <span>最高质量</span>
+            </div>
+          </div>
+
+          <!-- Comparison preview -->
+          <div class="glass rounded-xl overflow-hidden animate-fade-in animate-delay-2">
+            <!-- Labels row -->
+            <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
+              <div class="flex items-center gap-2">
+                <span class="label-badge font-medium text-muted-light">原图</span>
+                <span id="original-size-badge" class="format-badge bg-white/5 text-muted-light">—</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="compressed-size-badge" class="format-badge bg-accent/10 text-accent">—</span>
+                <span class="label-badge font-medium text-accent">压缩后</span>
+              </div>
+            </div>
+
+            <!-- Comparison slider area -->
+            <div class="comparison-wrapper grid-pattern" id="comparison-area" style="min-height: 320px;">
+              <!-- Original (left / top layer) -->
+              <div id="original-layer" class="absolute inset-0 flex items-center justify-center p-4">
+                <img id="original-preview" class="max-w-full max-h-[420px] object-contain rounded-lg" src="" alt="原图预览" />
+              </div>
+              <!-- Compressed (right / clipped layer) -->
+              <div id="compressed-layer" class="absolute inset-0 flex items-center justify-center p-4" style="clip-path: inset(0 50% 0 0);">
+                <img id="compressed-preview" class="max-w-full max-h-[420px] object-contain rounded-lg" src="" alt="压缩后预览" />
+              </div>
+              <!-- Divider -->
+              <div id="comparison-divider" class="comparison-divider" style="left: 50%;"></div>
+            </div>
+          </div>
+
+          <!-- Stats row -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fade-in animate-delay-3">
+            <!-- Original size -->
+            <div class="glass rounded-xl px-4 py-4 text-center">
+              <p class="text-xs text-muted-light uppercase tracking-wider mb-1">原始大小</p>
+              <p id="stat-original" class="font-display font-bold text-xl text-white stat-value">—</p>
+            </div>
+            <!-- Compressed size -->
+            <div class="glass rounded-xl px-4 py-4 text-center">
+              <p class="text-xs text-muted-light uppercase tracking-wider mb-1">压缩后</p>
+              <p id="stat-compressed" class="font-display font-bold text-xl text-white stat-value">—</p>
+            </div>
+            <!-- Savings -->
+            <div class="glass rounded-xl px-4 py-4 text-center savings-pulse">
+              <p class="text-xs text-muted-light uppercase tracking-wider mb-1">节省空间</p>
+              <p id="stat-savings" class="font-display font-bold text-xl text-accent stat-value">—</p>
+            </div>
+            <!-- Output format -->
+            <div class="glass rounded-xl px-4 py-4 text-center">
+              <p class="text-xs text-muted-light uppercase tracking-wider mb-1">输出格式</p>
+              <p id="stat-format" class="font-display font-bold text-xl text-white">—</p>
+            </div>
+          </div>
+
+          <!-- Download button -->
+          <div class="flex justify-center animate-fade-in animate-delay-4">
+            <button
+              id="download-btn"
+              class="btn-download bg-accent hover:bg-accent-light text-surface-900 font-display font-bold text-base px-10 py-4 rounded-xl flex items-center gap-3 shadow-lg shadow-accent/20"
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              下载压缩后的图片
+            </button>
+          </div>
+
+        </section>
+
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full px-6 py-6 text-center">
+      <p class="text-xs text-muted">
+        TinyShrink — 所有处理均在本地完成，图片绝不离开您的设备
+      </p>
+    </footer>
+
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      // ====== DOM References ======
+      const $ = (sel) => document.querySelector(sel);
+      const dropzone        = $('#dropzone');
+      const fileInput       = $('#file-input');
+      const dropzoneSection = $('#dropzone-section');
+      const editorSection   = $('#editor-section');
+      const thumbImg        = $('#thumb-img');
+      const fileName        = $('#file-name');
+      const fileMeta        = $('#file-meta');
+      const resetBtn        = $('#reset-btn');
+      const qualitySlider   = $('#quality-slider');
+      const qualityValue    = $('#quality-value');
+      const originalPreview = $('#original-preview');
+      const compressedPreview = $('#compressed-preview');
+      const compressedLayer = $('#compressed-layer');
+      const divider         = $('#comparison-divider');
+      const comparisonArea  = $('#comparison-area');
+      const statOriginal    = $('#stat-original');
+      const statCompressed  = $('#stat-compressed');
+      const statSavings     = $('#stat-savings');
+      const statFormat      = $('#stat-format');
+      const originalSizeBadge  = $('#original-size-badge');
+      const compressedSizeBadge = $('#compressed-size-badge');
+      const downloadBtn     = $('#download-btn');
+
+      // ====== State ======
+      let originalFile = null;
+      let originalDataUrl = null;
+      let compressedBlob = null;
+      let compressedDataUrl = null;
+      let outputMime = 'image/jpeg';
+      let outputExt = 'jpg';
+
+      const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+
+      // ====== Utilities ======
+      function formatBytes(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+      }
+
+      function getMimeAndExt(file) {
+        const type = file.type;
+        if (type === 'image/png')  return { mime: 'image/png',  ext: 'png' };
+        if (type === 'image/webp') return { mime: 'image/webp', ext: 'webp' };
+        return { mime: 'image/jpeg', ext: 'jpg' };
+      }
+
+      // ====== Slider gradient update ======
+      function updateSliderGradient() {
+        const val = qualitySlider.value;
+        qualitySlider.style.setProperty('--val', val + '%');
+        qualitySlider.style.background =
+          `linear-gradient(to right, #22d67a ${val}%, rgba(255,255,255,0.08) ${val}%)`;
+      }
+
+      // ====== Core: Compress image via Canvas ======
+      function compressImage(dataUrl, quality, mime) {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            canvas.toBlob((blob) => {
+              const url = URL.createObjectURL(blob);
+              resolve({ blob, url });
+            }, mime, quality);
+          };
+          img.src = dataUrl;
+        });
+      }
+
+      // ====== Update stats & previews ======
+      async function recompress() {
+        if (!originalDataUrl) return;
+
+        const quality = qualitySlider.value / 100;
+        const { blob, url } = await compressImage(originalDataUrl, quality, outputMime);
+
+        // Revoke previous compressed URL to free memory
+        if (compressedDataUrl) URL.revokeObjectURL(compressedDataUrl);
+
+        compressedBlob = blob;
+        compressedDataUrl = url;
+        compressedPreview.src = url;
+
+        // Stats
+        const origSize = originalFile.size;
+        const compSize = blob.size;
+        const savings = origSize > compSize
+          ? ((1 - compSize / origSize) * 100).toFixed(1)
+          : '0';
+
+        statOriginal.textContent    = formatBytes(origSize);
+        statCompressed.textContent  = formatBytes(compSize);
+        statSavings.textContent     = savings + '%';
+        statFormat.textContent      = outputExt.toUpperCase();
+
+        originalSizeBadge.textContent   = formatBytes(origSize);
+        compressedSizeBadge.textContent = formatBytes(compSize);
+      }
+
+      // ====== Load file ======
+      function loadFile(file) {
+        if (!file) return;
+
+        // Validate type
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+          alert('不支持的文件格式。请选择 JPG、PNG 或 WebP 图片。');
+          return;
+        }
+        // Validate size
+        if (file.size > MAX_FILE_SIZE) {
+          alert('文件太大（最大 20MB）。请选择更小的图片。');
+          return;
+        }
+
+        originalFile = file;
+        const { mime, ext } = getMimeAndExt(file);
+        outputMime = mime;
+        outputExt = ext;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          originalDataUrl = e.target.result;
+
+          // Set previews
+          originalPreview.src = originalDataUrl;
+          thumbImg.src = originalDataUrl;
+
+          // File info
+          fileName.textContent = file.name;
+
+          // Get dimensions
+          const tmpImg = new Image();
+          tmpImg.onload = () => {
+            fileMeta.textContent = `${tmpImg.naturalWidth} × ${tmpImg.naturalHeight} · ${formatBytes(file.size)}`;
+          };
+          tmpImg.src = originalDataUrl;
+
+          // Show editor, hide dropzone
+          dropzoneSection.classList.add('section-hidden');
+          editorSection.classList.remove('section-hidden');
+
+          // Reset slider to 80
+          qualitySlider.value = 80;
+          updateSliderGradient();
+          qualityValue.textContent = '80';
+
+          // Initial compress
+          recompress();
+        };
+        reader.readAsDataURL(file);
+      }
+
+      // ====== Reset ======
+      function reset() {
+        if (compressedDataUrl) URL.revokeObjectURL(compressedDataUrl);
+        originalFile = null;
+        originalDataUrl = null;
+        compressedBlob = null;
+        compressedDataUrl = null;
+
+        editorSection.classList.add('section-hidden');
+        dropzoneSection.classList.remove('section-hidden');
+        fileInput.value = '';
+      }
+
+      // ====== Comparison slider drag ======
+      let isDragging = false;
+
+      function setDividerPosition(clientX) {
+        const rect = comparisonArea.getBoundingClientRect();
+        let pct = ((clientX - rect.left) / rect.width) * 100;
+        pct = Math.max(2, Math.min(98, pct));
+        divider.style.left = pct + '%';
+        compressedLayer.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+      }
+
+      comparisonArea.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        setDividerPosition(e.clientX);
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        setDividerPosition(e.clientX);
+      });
+
+      document.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      // Touch support for comparison slider
+      comparisonArea.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        setDividerPosition(e.touches[0].clientX);
+      }, { passive: true });
+
+      document.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        setDividerPosition(e.touches[0].clientX);
+      }, { passive: true });
+
+      document.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+
+      // ====== Event listeners ======
+
+      // Dropzone click
+      dropzone.addEventListener('click', () => fileInput.click());
+      dropzone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+      });
+
+      // File input change
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) loadFile(e.target.files[0]);
+      });
+
+      // Drag & drop
+      let dragCounter = 0;
+
+      dropzone.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragCounter++;
+        dropzone.classList.add('drag-over');
+      });
+
+      dropzone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter <= 0) {
+          dragCounter = 0;
+          dropzone.classList.remove('drag-over');
+        }
+      });
+
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropzone.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length) loadFile(files[0]);
+      });
+
+      // Also support drag & drop on the whole page when editor is visible
+      document.addEventListener('dragover', (e) => e.preventDefault());
+      document.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (editorSection.classList.contains('section-hidden')) return;
+        const files = e.dataTransfer.files;
+        if (files.length) loadFile(files[0]);
+      });
+
+      // Quality slider
+      let compressTimer = null;
+      qualitySlider.addEventListener('input', () => {
+        updateSliderGradient();
+        qualityValue.textContent = qualitySlider.value;
+        // Debounce recompression for performance
+        clearTimeout(compressTimer);
+        compressTimer = setTimeout(recompress, 150);
+      });
+
+      // Reset / change image
+      resetBtn.addEventListener('click', reset);
+
+      // Download
+      downloadBtn.addEventListener('click', () => {
+        if (!compressedBlob) return;
+        const baseName = originalFile.name.replace(/\.[^.]+$/, '');
+        const outName = `${baseName}_compressed.${outputExt}`;
+        const a = document.createElement('a');
+        a.href = compressedDataUrl;
+        a.download = outName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+
+      // Initialize slider gradient
+      updateSliderGradient();
+    })();
+  </script>
+</body>
+</html>
